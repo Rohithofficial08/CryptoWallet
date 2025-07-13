@@ -1,16 +1,24 @@
 import dotenv from "dotenv";
-dotenv.config(); 
+dotenv.config();
 import User from "../models/User.js";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 
 const SECRET = process.env.JWT_SECRET;
 
-function generateUserId(username) {
+const generateUserId = async (username) => {
   const prefix = username.slice(0, 3).toLowerCase();
-  const random = Math.floor(10000 + Math.random() * 89999); // ensures 5-digit number
-  return (prefix + random).slice(0, 8);
-}
+  let userId;
+  let exists;
+
+  do {
+    const random = Math.floor(10000 + Math.random() * 90000);
+    userId = (prefix + random).slice(0, 8); 
+    exists = await User.findOne({ userId });
+  } while (exists);
+
+  return userId;
+};
 
 export const register = async (req, res) => {
   const { username, email, password, walletAddress } = req.body;
@@ -25,11 +33,7 @@ export const register = async (req, res) => {
 
     const hashed = await bcrypt.hash(password, 10);
 
-    // 🔑 Generate and ensure unique userId
-    let userId = generateUserId(username);
-    while (await User.findOne({ userId })) {
-      userId = generateUserId(username); // regenerate if taken
-    }
+    const userId = await generateUserId(username); // 👈 used here
 
     const user = await User.create({
       username,
@@ -54,7 +58,7 @@ export const register = async (req, res) => {
 };
 
 export const login = async (req, res) => {
-  const {email, password} = req.body;
+  const { email, password } = req.body;
 
   try {
     const user = await User.findOne({ email });
@@ -62,10 +66,6 @@ export const login = async (req, res) => {
 
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) return res.status(400).json({ error: "Incorrect Password" });
-
-    // if (walletAddress !== user.walletAddress) {
-    //   return res.status(401).json({ error: "Wallet address mismatch" });
-    // }
 
     const token = jwt.sign({ id: user._id }, SECRET, { expiresIn: "1d" });
 

@@ -3,7 +3,7 @@ import dotenv from "dotenv";
 import cors from "cors"
 import connectDB from "./config/db.js";
 import authRoute from "./routes/authRoutes.js";
-
+import profileRoute from "./routes/profileRoutes.js";
 dotenv.config();
 
 const app = express();
@@ -17,6 +17,7 @@ app.get("/", (req, res) => {
   res.send("🚀 Server is running and DB is connected!");
 });
 app.use("/api/auth",authRoute);
+app.use("/api",profileRoute);
 
 app.listen(PORT, () => {
   console.log(`🌐 Server running on http://localhost:${PORT}`);
