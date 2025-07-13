@@ -3,7 +3,7 @@ dotenv.config();
 import User from "../models/User.js";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
-
+import { airdropToNewUser } from "../utils/airdropService.js";
 const SECRET = process.env.JWT_SECRET;
 
 const generateUserId = async (username) => {
@@ -42,6 +42,15 @@ export const register = async (req, res) => {
       walletAddress,
       userId
     });
+
+    if (!user.isAirdropped) {
+      const success = await airdropToNewUser(walletAddress);
+
+      if (success) {
+        user.isAirdropped = true;
+        await user.save();
+      }
+    }
 
     const token = jwt.sign({ id: user._id }, SECRET, { expiresIn: "1d" });
 
