@@ -6,7 +6,10 @@ const userSchema = new mongoose.Schema({
   password: { type: String, required: true },
   walletAddress: { type: String, required: true },
   userId: { type: String, unique: true, required: true },
-  isAirdropped: { type: Boolean, default: false }
+  isAirdropped: { type: Boolean, default: false },
+  fcmToken: { type: String },
+  qrCodeData: { type: Object },
+  qrCodeImageUrl: { type: String }
 },);
 
 export default mongoose.model("User", userSchema);
