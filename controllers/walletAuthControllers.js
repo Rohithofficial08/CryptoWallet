@@ -50,7 +50,8 @@ export const verifyWalletSignature = async (req, res) => {
       message: "Wallet verified",
       token,
       userId: user.userId,
-      walletAddress: user.walletAddress
+      walletAddress: user.walletAddress,
+      walletVerified:true
     });
   } catch (error) {
     console.error("Signature verification error:", error.message);
