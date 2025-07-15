@@ -7,6 +7,7 @@ import connectDB from "./config/db.js";
 import authRoute from "./routes/authRoutes.js";
 import profileRoute from "./routes/profileRoutes.js";
 import walletRoute from "./routes/walletRoutes.js";
+import walletAuthRoutes from "./routes/walletAuthRoutes.js";
 import transactionRoute from "./routes/transactionRoute.js";
 import "./firebase/firebaseConfig.js";
 
@@ -48,11 +49,12 @@ app.get("/", (req, res) => {
 app.use("/api/auth",authRoute);
 app.use("/api",profileRoute);
 app.use("/api/wallet",walletRoute);
+app.use("/api/metamask",walletAuthRoutes);
 app.use("/api/transactions", transactionRoute);
 
 
 const PORT = process.env.PORT || 5070;
-app.listen(PORT, () => {
+app.listen(PORT,'0.0.0.0',() => {
   console.log(`🌐 Server running on http://localhost:${PORT}`);
 console.log("Loaded JWT secret:", process.env.JWT_SECRET);
 });

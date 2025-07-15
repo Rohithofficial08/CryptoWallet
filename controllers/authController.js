@@ -21,31 +21,42 @@ const generateUserId = async (username) => {
 };
 
 export const register = async (req, res) => {
-  const { username, email, password, walletAddress } = req.body;
+  const { username, email, password, walletAddress, signature } = req.body;
 
-  if (!username || !email || !password || !walletAddress) {
+  if (!username || !email || !password || !walletAddress || !signature) {
     return res.status(400).json({ error: "Missing fields" });
   }
 
   try {
+    const nonce = global.nonceMap?.get(walletAddress.toLowerCase());
+    if (!nonce) return res.status(400).json({ error: "Nonce not found or expired" });
+
+    const recovered = ethers.verifyMessage(nonce, signature);
+    if (recovered.toLowerCase() !== walletAddress.toLowerCase()) {
+      return res.status(401).json({ error: "Signature does not match wallet address" });
+    }
+
+    global.nonceMap.delete(walletAddress.toLowerCase());
+
+    // ✅ STEP 2: Check if user exists
     const existing = await User.findOne({ email });
     if (existing) return res.status(400).json({ error: "User already exists" });
 
     const hashed = await bcrypt.hash(password, 10);
-
-    const userId = await generateUserId(username); // 👈 used here
+    const userId = await generateUserId(username);
 
     const user = await User.create({
       username,
       email,
       password: hashed,
       walletAddress,
-      userId
+      userId,
+      walletVerified: { type: Boolean, default: false }
     });
 
+    // Optional airdrop logic
     if (!user.isAirdropped) {
       const success = await airdropToNewUser(walletAddress);
-
       if (success) {
         user.isAirdropped = true;
         await user.save();
@@ -65,6 +76,7 @@ export const register = async (req, res) => {
     res.status(500).json({ error: "Server error", details: err.message });
   }
 };
+
 
 export const login = async (req, res) => {
   const { email, password } = req.body;
