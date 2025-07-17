@@ -44,6 +44,9 @@ export const register = async (req, res) => {
 
     const hashed = await bcrypt.hash(password, 10);
     const userId = await generateUserId(username);
+    
+  const walletExists = await User.findOne({ walletAddress });
+  if (walletExists) return res.status(400).json({ error: "Wallet already registered" });
 
     const user = await User.create({
       username,
@@ -51,7 +54,7 @@ export const register = async (req, res) => {
       password: hashed,
       walletAddress,
       userId,
-      walletVerified: { type: Boolean, default: false }
+      walletVerified:true,
     });
 
     // Optional airdrop logic
