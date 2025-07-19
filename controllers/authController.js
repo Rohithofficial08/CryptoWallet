@@ -1,23 +1,23 @@
-import { ethers } from "ethers"
+import { ethers } from "ethers";
 import dotenv from "dotenv";
 dotenv.config();
 import User from "../models/User.js";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
+import nonceMap from "../utils/nonceStore.js";
 import { airdropToNewUser } from "../utils/airdropService.js";
+
 const SECRET = process.env.JWT_SECRET;
 
 const generateUserId = async (username) => {
   const prefix = username.slice(0, 3).toLowerCase();
   let userId;
   let exists;
-
   do {
     const random = Math.floor(10000 + Math.random() * 90000);
-    userId = (prefix + random).slice(0, 8); 
+    userId = (prefix + random).slice(0, 8);
     exists = await User.findOne({ userId });
   } while (exists);
-
   return userId;
 };
 
@@ -29,7 +29,7 @@ export const register = async (req, res) => {
   }
 
   try {
-    const nonce = global.nonceMap?.get(walletAddress.toLowerCase());
+    const nonce = nonceMap.get(walletAddress.toLowerCase());
     if (!nonce) return res.status(400).json({ error: "Nonce not found or expired" });
 
     const recovered = ethers.verifyMessage(nonce, signature);
@@ -37,17 +37,16 @@ export const register = async (req, res) => {
       return res.status(401).json({ error: "Signature does not match wallet address" });
     }
 
-    global.nonceMap.delete(walletAddress.toLowerCase());
+    nonceMap.delete(walletAddress.toLowerCase());
 
-    // ✅ STEP 2: Check if user exists
     const existing = await User.findOne({ email });
     if (existing) return res.status(400).json({ error: "User already exists" });
 
+    const walletExists = await User.findOne({ walletAddress });
+    if (walletExists) return res.status(400).json({ error: "Wallet already registered" });
+
     const hashed = await bcrypt.hash(password, 10);
     const userId = await generateUserId(username);
-    
-  const walletExists = await User.findOne({ walletAddress });
-  if (walletExists) return res.status(400).json({ error: "Wallet already registered" });
 
     const user = await User.create({
       username,
@@ -55,10 +54,9 @@ export const register = async (req, res) => {
       password: hashed,
       walletAddress,
       userId,
-      walletVerified:true,
+      walletVerified: true,
     });
 
-    // Optional airdrop logic
     if (!user.isAirdropped) {
       const success = await airdropToNewUser(walletAddress);
       if (success) {
@@ -69,19 +67,18 @@ export const register = async (req, res) => {
 
     const token = jwt.sign({ id: user._id }, SECRET, { expiresIn: "1d" });
 
-    res.status(201).json({
+    return res.status(201).json({
       message: "User registered",
       token,
       userId: user.userId,
-      walletAddress: user.walletAddress
+      walletAddress: user.walletAddress,
     });
-
   } catch (err) {
-    res.status(500).json({ error: "Server error", details: err.message });
+    return res.status(500).json({ error: "Server error", details: err.message });
   }
 };
 
-
+// ✅ Normal login (email & password)
 export const login = async (req, res) => {
   const { email, password } = req.body;
 
@@ -90,41 +87,40 @@ export const login = async (req, res) => {
     if (!user) return res.status(404).json({ error: "User not found" });
 
     const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch) return res.status(400).json({ error: "Incorrect Password" });
+    if (!isMatch) return res.status(400).json({ error: "Incorrect password" });
 
     const token = jwt.sign({ id: user._id }, SECRET, { expiresIn: "1d" });
 
-    res.status(200).json({
+    return res.status(200).json({
       message: "Login successful",
       token,
       userId: user.userId,
-      walletAddress: user.walletAddress
+      walletAddress: user.walletAddress,
     });
-
   } catch (err) {
-    res.status(500).json({ error: "Server error", details: err.message });
+    return res.status(500).json({ error: "Server error", details: err.message });
   }
 };
 
+// ✅ Token verification
 export const verifyToken = async (req, res) => {
   try {
     const user = await User.findById(req.user.id).select("username email userId walletAddress");
-
     if (!user) {
       return res.status(404).json({ error: "User not found" });
     }
 
-    res.status(200).json({
+    return res.status(200).json({
       message: "Token valid",
       user: {
         id: user._id,
         username: user.username,
         email: user.email,
         userId: user.userId,
-        walletAddress: user.walletAddress
-      }
+        walletAddress: user.walletAddress,
+      },
     });
   } catch (err) {
-    res.status(500).json({ error: "Server error", details: err.message });
+    return res.status(500).json({ error: "Server error", details: err.message });
   }
 };
