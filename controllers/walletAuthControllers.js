@@ -17,7 +17,7 @@ export const getNonce = async (req, res) => {
 
 // Step 2: Verify the signature
 export const verifyWalletSignature = async (req, res) => {
-  const { address, signature } = req.body;
+  const { address, signature, username, email, password } = req.body;
   if (!address || !signature) return res.status(400).json({ error: "Missing fields" });
 
   const nonce = nonceMap.get(address.toLowerCase());
@@ -28,9 +28,20 @@ export const verifyWalletSignature = async (req, res) => {
     if (recovered.toLowerCase() !== address.toLowerCase()) {
       return res.status(401).json({ error: "Invalid signature" });
     }
-    const user = await User.findOne({ walletAddress: address.toLowerCase() });
-    if (!user) return res.status(404).json({ error: "User not found" });
-    // JWT generation
+
+    let user = await User.findOne({ walletAddress: address.toLowerCase() });
+
+    if (!user) {
+      user = new User({
+        username: username || "Anonymous",
+        email: email || "",
+        password: password || "",
+        walletAddress: address.toLowerCase(),
+        isWalletVerified: true,
+      });
+      await user.save();
+    }
+
     const token = jwt.sign({ id: user._id }, SECRET, { expiresIn: "1d" });
     nonceMap.delete(address.toLowerCase());
 
@@ -39,10 +50,10 @@ export const verifyWalletSignature = async (req, res) => {
       token,
       userId: user.userId,
       walletAddress: user.walletAddress,
-      walletVerified:true
+      walletVerified: true
     });
   } catch (error) {
-    console.error("Signature verification error:", error.message);
     return res.status(500).json({ error: "Verification failed" });
   }
 };
+
