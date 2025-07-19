@@ -21,29 +21,31 @@ const generateUserId = async (username) => {
   return userId;
 };
 
+// ✅ UPDATED: No signature verification required
 export const register = async (req, res) => {
-  const { username, email, password, walletAddress, signature } = req.body;
+  const { username, email, password, walletAddress } = req.body;
 
-  if (!username || !email || !password || !walletAddress || !signature) {
-    return res.status(400).json({ error: "Missing fields" });
+  // ✅ CHANGED: signature is optional now
+  if (!username || !email || !password || !walletAddress) {
+    return res.status(400).json({ error: "Missing required fields: username, email, password, walletAddress" });
   }
 
   try {
-    const nonce = nonceMap.get(walletAddress.toLowerCase());
-    if (!nonce) return res.status(400).json({ error: "Nonce not found or expired" });
-
-    const recovered = ethers.verifyMessage(nonce, signature);
-    if (recovered.toLowerCase() !== walletAddress.toLowerCase()) {
-      return res.status(401).json({ error: "Signature does not match wallet address" });
-    }
-
-    nonceMap.delete(walletAddress.toLowerCase());
-
+    // ✅ REMOVED: All nonce and signature verification logic
+    // No need to verify signature for MVP
+    
+    // Check if user already exists
     const existing = await User.findOne({ email });
     if (existing) return res.status(400).json({ error: "User already exists" });
 
-    const walletExists = await User.findOne({ walletAddress });
+    // Check if wallet already registered
+    const walletExists = await User.findOne({ walletAddress: walletAddress.toLowerCase() });
     if (walletExists) return res.status(400).json({ error: "Wallet already registered" });
+
+    // ✅ ADDED: Basic wallet address validation
+    if (!walletAddress.startsWith("0x") || walletAddress.length !== 42) {
+      return res.status(400).json({ error: "Invalid wallet address format" });
+    }
 
     const hashed = await bcrypt.hash(password, 10);
     const userId = await generateUserId(username);
@@ -52,33 +54,43 @@ export const register = async (req, res) => {
       username,
       email,
       password: hashed,
-      walletAddress,
+      walletAddress: walletAddress.toLowerCase(), // Store in lowercase for consistency
       userId,
-      walletVerified: true,
+      walletVerified: true, // ✅ Auto-verify for MVP (no signature needed)
     });
 
+    // ✅ Airdrop APT tokens to new user
     if (!user.isAirdropped) {
+      console.log(`🪂 Starting airdrop for new user: ${walletAddress}`);
       const success = await airdropToNewUser(walletAddress);
       if (success) {
         user.isAirdropped = true;
         await user.save();
+        console.log(`✅ Airdrop successful for: ${walletAddress}`);
+      } else {
+        console.log(`⚠️ Airdrop failed for: ${walletAddress}`);
       }
     }
 
     const token = jwt.sign({ id: user._id }, SECRET, { expiresIn: "1d" });
 
+    console.log(`🎉 User registered successfully: ${username} (${walletAddress})`);
+
     return res.status(201).json({
-      message: "User registered",
+      message: "User registered successfully",
       token,
       userId: user.userId,
       walletAddress: user.walletAddress,
+      username: user.username,
+      airdropped: user.isAirdropped,
     });
   } catch (err) {
+    console.error(`❌ Registration error:`, err);
     return res.status(500).json({ error: "Server error", details: err.message });
   }
 };
 
-// ✅ Normal login (email & password)
+// ✅ Normal login (email & password) - NO CHANGES NEEDED
 export const login = async (req, res) => {
   const { email, password } = req.body;
 
@@ -96,13 +108,14 @@ export const login = async (req, res) => {
       token,
       userId: user.userId,
       walletAddress: user.walletAddress,
+      username: user.username,
     });
   } catch (err) {
     return res.status(500).json({ error: "Server error", details: err.message });
   }
 };
 
-// ✅ Token verification
+// ✅ Token verification - NO CHANGES NEEDED
 export const verifyToken = async (req, res) => {
   try {
     const user = await User.findById(req.user.id).select("username email userId walletAddress");
@@ -120,6 +133,29 @@ export const verifyToken = async (req, res) => {
         walletAddress: user.walletAddress,
       },
     });
+  } catch (err) {
+    return res.status(500).json({ error: "Server error", details: err.message });
+  }
+};
+
+// ✅ OPTIONAL: Add nonce endpoint for future use (if you want to add signature verification later)
+export const generateNonce = async (req, res) => {
+  const { walletAddress } = req.body;
+  
+  if (!walletAddress) {
+    return res.status(400).json({ error: "Wallet address required" });
+  }
+
+  try {
+    const nonce = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+    nonceMap.set(walletAddress.toLowerCase(), nonce);
+    
+    // Expire nonce after 5 minutes
+    setTimeout(() => {
+      nonceMap.delete(walletAddress.toLowerCase());
+    }, 5 * 60 * 1000);
+
+    return res.status(200).json({ nonce });
   } catch (err) {
     return res.status(500).json({ error: "Server error", details: err.message });
   }
