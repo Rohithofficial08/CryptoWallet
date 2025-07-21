@@ -3,6 +3,9 @@ import tokenContract from "../config/contractwithSigner.js";
 import { faucetWallet } from "../config/provider.js";
 
 export const airdropToNewUser = async (walletAddress) => {
+  const currentOwner = await tokenContract.owner();
+  console.log(" Token contract owner is:", currentOwner);
+
   try {
     const mintTx = await tokenContract.mint(walletAddress, ethers.parseUnits("50", 18));
     await mintTx.wait();
