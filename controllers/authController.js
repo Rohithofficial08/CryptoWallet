@@ -1,9 +1,11 @@
+import { ethers } from "ethers";
 import dotenv from "dotenv";
 dotenv.config();
 
 import User from "../models/User.js";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
+import nonceMap from "../utils/nonceStore.js";
 import { airdropToNewUser } from "../utils/airdropService.js";
 import { sendPushToUser } from "../utils/pushNotifications.js"; // ✅ Add this to send push
 
@@ -21,6 +23,7 @@ const generateUserId = async (username) => {
   return userId;
 };
 
+// ✅ UPDATED: No signature verification required
 export const register = async (req, res) => {
   const { username, email, password, walletAddress, fcmToken } = req.body;
 
@@ -32,6 +35,15 @@ export const register = async (req, res) => {
     const existing = await User.findOne({ email });
     if (existing) return res.status(400).json({ error: "User already exists" });
 
+    // Check if wallet already registered
+    const walletExists = await User.findOne({ walletAddress: walletAddress.toLowerCase() });
+    if (walletExists) return res.status(400).json({ error: "Wallet already registered" });
+
+    // ✅ ADDED: Basic wallet address validation
+    if (!walletAddress.startsWith("0x") || walletAddress.length !== 42) {
+      return res.status(400).json({ error: "Invalid wallet address format" });
+    }
+
     const hashed = await bcrypt.hash(password, 10);
     const userId = await generateUserId(username);
 
@@ -39,7 +51,7 @@ export const register = async (req, res) => {
       username,
       email,
       password: hashed,
-      walletAddress,
+      walletAddress: walletAddress.toLowerCase(), // Store in lowercase for consistency
       userId,
       walletVerified: false,
       isAirdropped: false,
@@ -48,6 +60,7 @@ export const register = async (req, res) => {
 
     // ✅ Airdrop only once per user (if registered for first time)
     if (!user.isAirdropped) {
+      console.log(`🪂 Starting airdrop for new user: ${walletAddress}`);
       const success = await airdropToNewUser(walletAddress);
 
       if (success) {
@@ -67,19 +80,27 @@ export const register = async (req, res) => {
         }
 
         await user.save();
+        console.log(`✅ Airdrop successful for: ${walletAddress}`);
+      } else {
+        console.log(`⚠️ Airdrop failed for: ${walletAddress}`);
       }
     }
 
     const token = jwt.sign({ id: user._id }, SECRET, { expiresIn: "1d" });
 
-    res.status(201).json({
-      message: "User registered",
+    console.log(`🎉 User registered successfully: ${username} (${walletAddress})`);
+
+    return res.status(201).json({
+      message: "User registered successfully",
       token,
       userId: user.userId,
-      walletAddress: user.walletAddress
+      walletAddress: user.walletAddress,
+      username: user.username,
+      airdropped: user.isAirdropped,
     });
   } catch (err) {
-    res.status(500).json({ error: "Server error", details: err.message });
+    console.error(`❌ Registration error:`, err);
+    return res.status(500).json({ error: "Server error", details: err.message });
   }
 };
 
@@ -93,18 +114,19 @@ export const login = async (req, res) => {
     if (!user) return res.status(404).json({ error: "User not found" });
 
     const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch) return res.status(400).json({ error: "Incorrect Password" });
+    if (!isMatch) return res.status(400).json({ error: "Incorrect password" });
 
     const token = jwt.sign({ id: user._id }, SECRET, { expiresIn: "1d" });
 
-    res.status(200).json({
+    return res.status(200).json({
       message: "Login successful",
       token,
       userId: user.userId,
-      walletAddress: user.walletAddress
+      walletAddress: user.walletAddress,
+      username: user.username,
     });
   } catch (err) {
-    res.status(500).json({ error: "Server error", details: err.message });
+    return res.status(500).json({ error: "Server error", details: err.message });
   }
 };
 
@@ -119,17 +141,40 @@ export const verifyToken = async (req, res) => {
       return res.status(404).json({ error: "User not found" });
     }
 
-    res.status(200).json({
+    return res.status(200).json({
       message: "Token valid",
       user: {
         id: user._id,
         username: user.username,
         email: user.email,
         userId: user.userId,
-        walletAddress: user.walletAddress
-      }
+        walletAddress: user.walletAddress,
+      },
     });
   } catch (err) {
-    res.status(500).json({ error: "Server error", details: err.message });
+    return res.status(500).json({ error: "Server error", details: err.message });
+  }
+};
+
+// ✅ OPTIONAL: Add nonce endpoint for future use (if you want to add signature verification later)
+export const generateNonce = async (req, res) => {
+  const { walletAddress } = req.body;
+  
+  if (!walletAddress) {
+    return res.status(400).json({ error: "Wallet address required" });
+  }
+
+  try {
+    const nonce = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+    nonceMap.set(walletAddress.toLowerCase(), nonce);
+    
+    // Expire nonce after 5 minutes
+    setTimeout(() => {
+      nonceMap.delete(walletAddress.toLowerCase());
+    }, 5 * 60 * 1000);
+
+    return res.status(200).json({ nonce });
+  } catch (err) {
+    return res.status(500).json({ error: "Server error", details: err.message });
   }
 };

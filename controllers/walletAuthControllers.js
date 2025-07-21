@@ -1,8 +1,8 @@
 import { ethers } from "ethers";
 import jwt from "jsonwebtoken";
 import User from "../models/User.js";
+import nonceMap from "../utils/nonceStore.js";
 
-const nonceMap = new Map();
 const SECRET = process.env.JWT_SECRET;
 
 // Step 1: Send nonce to client
@@ -16,7 +16,7 @@ export const getNonce = async (req, res) => {
   return res.status(200).json({ nonce });
 };
 
-// Step 2: Verify the signature
+// Step 2: Verify the signature (used for MetaMask-only login)
 export const verifyWalletSignature = async (req, res) => {
   const { address, signature } = req.body;
   if (!address || !signature) return res.status(400).json({ error: "Missing fields" });
@@ -30,19 +30,17 @@ export const verifyWalletSignature = async (req, res) => {
       return res.status(401).json({ error: "Invalid signature" });
     }
 
-    // If wallet not in DB, create user with wallet only
-    let user = await User.findOne({ walletAddress: address });
+    let user = await User.findOne({ walletAddress: address.toLowerCase() });
     if (!user) {
       user = await User.create({
         walletAddress: address,
         username: `user_${address.slice(2, 8)}`,
         email: `eth_${address.slice(2, 8)}@walletuser.io`,
-        password: "", // empty password for MetaMask-only users
-        userId: address.slice(2, 10)
+        password: "",
+        userId: address.slice(2, 10),
       });
     }
 
-    // JWT generation
     const token = jwt.sign({ id: user._id }, SECRET, { expiresIn: "1d" });
     nonceMap.delete(address.toLowerCase());
 
@@ -51,7 +49,6 @@ export const verifyWalletSignature = async (req, res) => {
       token,
       userId: user.userId,
       walletAddress: user.walletAddress,
-      walletVerified:true
     });
   } catch (error) {
     console.error("Signature verification error:", error.message);
